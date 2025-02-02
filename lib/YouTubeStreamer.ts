@@ -1,186 +1,148 @@
 // lib/YouTubeStreamer.ts
-import { spawn, ChildProcess } from 'child_process';
-import { EventEmitter } from 'events';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
 import fs from 'fs';
+import { EventEmitter } from 'events';
 
-interface StreamConfig {
-  audioUrl: string;
+type StreamConfig = {
   streamKey: string;
+  audioUrl: string;
   videoSize?: string;
   thumbnailPath?: string;
-}
+};
 
-interface StreamProgress {
-  frames?: number;
-  currentFps?: number;
-  currentKbps?: number;
-  timemark?: string;
-}
+type StreamProgress = {
+  frames: number;
+  currentFps: number;
+  currentKbps: number;
+  timemark: string;
+};
 
 export class YouTubeStreamer extends EventEmitter {
-  private process: ChildProcess | null = null;
-  private _isStreaming: boolean = false;
-  private config: StreamConfig;
+  private command: ffmpeg.FfmpegCommand | null;
+  private _isStreaming: boolean;
 
-  constructor(config: StreamConfig) {
+  constructor(private config: StreamConfig) {
     super();
-    this.config = config;
     this._isStreaming = false;
-  }
 
-  private buildFFmpegArgs(): string[] {
+    if (!ffmpegPath) throw new Error('FFmpeg not found');
+
+    // Set default video size if not provided
     const videoSize = this.config.videoSize || '1280x720';
-    const args: string[] = [];
 
-    // Input options for audio stream
-    args.push('-i', this.config.audioUrl);
-    args.push('-re'); // Read input at native frame rate
+    this.command = ffmpeg()
+      .setFfmpegPath(ffmpegPath);
 
+    // If thumbnail is provided, use it; otherwise use black background
     if (this.config.thumbnailPath && fs.existsSync(this.config.thumbnailPath)) {
-      // Add thumbnail input
-      args.push('-i', this.config.thumbnailPath);
-      
-      // Complex filter for thumbnail overlay
-      args.push(
-        '-filter_complex',
-        '[1:v][0:v]scale2ref[img][color];[color][img]overlay=x=(W-w)/2:y=(H-h)/2[out]',
-        '-map', '[out]',
-        '-map', '0:a'
-      );
+      this.command
+        .input(this.config.thumbnailPath)
+        .inputOptions([
+          '-loop 1',  // Loop the image
+          '-framerate 1'  // 1 frame per second
+        ]);
     } else {
-      // Create black background if no thumbnail
-      args.push(
-        '-f', 'lavfi',
-        '-i', `color=size=${videoSize}:rate=30:color=black`
-      );
+      this.command
+        .input('color=size=' + videoSize + ':rate=1:color=black')
+        .inputOptions([
+          '-f', 'lavfi'
+        ]);
     }
 
-    // Output options
-    args.push(
-      '-c:v', 'libx264',         // Video codec
-      '-preset', 'veryfast',     // Encoding preset
-      '-b:v', '1500k',          // Video bitrate
-      '-maxrate', '1500k',      // Maximum bitrate
-      '-bufsize', '3000k',      // Buffer size
-      '-pix_fmt', 'yuv420p',    // Pixel format
-      '-g', '60',               // Keyframe interval
-      '-c:a', 'aac',            // Audio codec
-      '-b:a', '128k',           // Audio bitrate
-      '-ar', '44100',           // Audio sample rate
-      '-f', 'flv'               // Output format
-    );
+    // Add audio input
+    this.command
+      .input(this.config.audioUrl)
+      .inputOptions([
+        '-f', 'aac'
+      ])
+      // Video settings
+      .videoCodec('libx264')
+      .outputOptions([
+        '-preset ultrafast',
+        '-tune stillimage',
+        '-r 1',          // 1 frame per second
+        '-g 2',          // GOP size of 2
+        '-c:a copy',     // Copy audio without re-encoding
+        '-shortest',     // End when shortest input ends
+        '-pix_fmt yuv420p',  // Required for compatibility
+        '-f flv'         // FLV output format
+      ])
+      .output(`rtmp://a.rtmp.youtube.com/live2/${this.config.streamKey}`)
+      .on('start', (commandLine) => {
+        console.log('FFmpeg process started with command:', commandLine);
+        this._isStreaming = true;
+        this.emit('status', { isStreaming: true, command: commandLine });
+      })
+      .on('stderr', (stderrLine) => {
+        console.log('FFmpeg:', stderrLine);
+        this.emit('log', { type: 'ffmpeg', message: stderrLine });
+      })
+      .on('progress', (progress) => {
+        const streamProgress: StreamProgress = {
+          frames: progress.frames,
+          currentFps: progress.currentFps,
+          currentKbps: progress.currentKbps,
+          timemark: progress.timemark
+        };
+        console.log('FFmpeg Progress:', streamProgress);
+        this.emit('progress', streamProgress);
+      })
+      .on('error', (err, stdout, stderr) => {
+        console.error('Stream error:', err.message);
+        console.error('FFmpeg stdout:', stdout);
+        console.error('FFmpeg stderr:', stderr);
+        this.emit('error', { error: err.message, stdout, stderr });
+        this.cleanup();
+      })
+      .on('end', () => {
+        console.log('FFmpeg process ended');
+        this.cleanup();
+        this.emit('end');
+      });
 
-    // YouTube RTMP URL
-    args.push(`rtmp://a.rtmp.youtube.com/live2/${this.config.streamKey}`);
-
-    return args;
+    // Start streaming immediately
+    this.startStream();
   }
 
-  public startStream() {
+  private startStream() {
     if (this._isStreaming) {
-      console.log('Stream is already running');
       return;
     }
 
-    const args = this.buildFFmpegArgs();
-    console.log('Starting FFmpeg with args:', args.join(' '));
-
-    try {
-      this.process = spawn('ffmpeg', args);
-      this._isStreaming = true;
-      this.emit('status', { isStreaming: true });
-
-      // Handle process events
-      if (this.process.stdout) {
-        this.process.stdout.on('data', (data: Buffer) => {
-          const message = data.toString();
-          console.log('FFmpeg stdout:', message);
-          this.emit('log', { type: 'info', message });
-        });
-      }
-
-      if (this.process.stderr) {
-        this.process.stderr.on('data', (data: Buffer) => {
-          const message = data.toString();
-          console.log('FFmpeg stderr:', message);
-          
-          // Parse progress information
-          if (message.includes('frame=')) {
-            const progress = this.parseProgress(message);
-            this.emit('progress', progress);
-          }
-          
-          this.emit('log', { type: 'info', message });
-        });
-      }
-
-      this.process.on('error', (err: Error) => {
-        const errorMessage = `FFmpeg Error: ${err.message}`;
-        console.error(errorMessage);
-        this.emit('error', { 
-          error: 'FFmpeg process error',
-          details: errorMessage
-        });
-        this.cleanup();
-      });
-
-      this.process.on('exit', (code: number | null, signal: string | null) => {
-        const message = `FFmpeg process exited with code ${code} and signal ${signal}`;
-        console.log(message);
-        this.emit('log', { type: 'info', message });
-        this.cleanup();
-      });
-
-    } catch (err) {
-      const error = err as Error;
-      console.error('Failed to start FFmpeg:', error);
-      this.emit('error', { 
-        error: 'Failed to start FFmpeg',
-        details: error.message
-      });
-      this.cleanup();
+    console.log('Starting stream...');
+    console.log('Audio URL:', this.config.audioUrl);
+    if (this.config.thumbnailPath) {
+      console.log('Using thumbnail:', this.config.thumbnailPath);
+    } else {
+      console.log('Using black background');
     }
+    this._isStreaming = true;
+    this.command?.run();
   }
 
-  private parseProgress(data: string): StreamProgress {
-    const progress: StreamProgress = {};
-    const parts = data.split(/\s+/);
-    
-    parts.forEach(part => {
-      if (part.startsWith('frame=')) {
-        progress.frames = parseInt(part.split('=')[1]);
-      } else if (part.startsWith('fps=')) {
-        progress.currentFps = parseInt(part.split('=')[1]);
-      } else if (part.startsWith('bitrate=')) {
-        const bitrate = part.split('=')[1];
-        progress.currentKbps = parseFloat(bitrate);
-      }
-    });
-
-    return progress;
-  }
-
-  public stopStream() {
-    if (!this._isStreaming || !this.process) {
-      console.log('No stream is running');
-      return;
+  stopStream(): void {
+    if (this._isStreaming && this.command) {
+      this._isStreaming = false;
+      this.command.kill('SIGKILL');
+      this.command = null;
+      this.emit('status', { isStreaming: false });
     }
-
-    console.log('Stopping stream...');
-    this.cleanup();
   }
 
   private cleanup() {
-    if (this.process) {
-      // Send SIGTERM to FFmpeg
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
     this._isStreaming = false;
     this.emit('status', { isStreaming: false });
   }
 
-  public get isStreaming(): boolean {
+  get isStreaming(): boolean {
     return this._isStreaming;
+  }
+
+  getStatus() {
+    return {
+      isStreaming: this._isStreaming,
+      config: this.config
+    };
   }
 }
