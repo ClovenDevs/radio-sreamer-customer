@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Radio Streamer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .gradient-border {
+            position: relative;
+            border-radius: 0.75rem;
+            background: linear-gradient(45deg, #1f2937, #111827);
+            backdrop-filter: blur(10px);
+        }
+        .gradient-border::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            bottom: -2px;
+            left: -2px;
+            background: linear-gradient(45deg, #3b82f6, #10b981);
+            border-radius: 0.875rem;
+            z-index: -1;
+            transition: opacity 0.3s ease;
+            opacity: 0.5;
+        }
+        .gradient-border:hover::before {
+            opacity: 0.8;
+        }
+        .log-entry {
+            transition: background-color 0.3s ease;
+        }
+        .log-entry:hover {
+            background-color: rgba(55, 65, 81, 0.5);
+        }
+        .log-info { border-left: 3px solid #3b82f6; }
+        .log-warn { border-left: 3px solid #f59e0b; }
+        .log-error { border-left: 3px solid #ef4444; }
+        .log-success { border-left: 3px solid #10b981; }
+        .stats-card {
+            backdrop-filter: blur(10px);
+            background: rgba(17, 24, 39, 0.8);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(31, 41, 55, 0.5);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(75, 85, 99, 0.8);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(107, 114, 128, 0.9);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <div class="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+            <div class="flex items-center space-x-4">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-green-500 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h1 class="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-green-500">
+                    YouTube Radio Streamer
+                </h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div id="connectionStatus" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium bg-gray-800">
+                    <div class="w-2 h-2 rounded-full animate-pulse-slow bg-yellow-500"></div>
+                    <span>Connecting...</span>
+                </div>
+                <div id="streamStatus" class="px-4 py-2 rounded-full text-sm font-semibold bg-gray-800">
+                    Initializing...
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
+            <div class="space-y-6">
+                <div class="gradient-border p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-blue-400 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Stream Controls
+                    </h2>
+                    <div id="streamProgress" class="hidden space-y-4 mb-6">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="stats-card rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <p class="text-gray-400 text-sm">Frames</p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
+                                    </svg>
+                                </div>
+                                <p class="text-xl font-mono" id="frames">0</p>
+                            </div>
+                            <div class="stats-card rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <p class="text-gray-400 text-sm">FPS</p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                </div>
+                                <p class="text-xl font-mono" id="fps">0</p>
+                            </div>
+                            <div class="stats-card rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <p class="text-gray-400 text-sm">Bitrate</p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                </div>
+                                <p class="text-xl font-mono"><span id="bitrate">0</span> kbps</p>
+                            </div>
+                            <div class="stats-card rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <p class="text-gray-400 text-sm">Duration</p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <p class="text-xl font-mono" id="time">00:00:00</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button id="startBtn" 
+                                class="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            </svg>
+                            <span>Start Stream</span>
+                        </button>
+                        <button id="stopBtn" 
+                                class="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-3 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                            </svg>
+                            <span>Stop Stream</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="gradient-border p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-blue-400 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Stream Settings
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="relative">
+                            <label class="block text-gray-300 text-sm font-medium mb-2" for="audioUrl">
+                                Audio URL
+                            </label>
+                            <div class="relative">
+                                <input type="text" 
+                                       id="audioUrl" 
+                                       name="audioUrl" 
+                                       value="<%= settings.audioUrl %>"
+                                       class="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="relative">
+                            <label class="block text-gray-300 text-sm font-medium mb-2" for="streamKey">
+                                Stream Key
+                            </label>
+                            <div class="relative">
+                                <input type="password" 
+                                       id="streamKey" 
+                                       name="streamKey" 
+                                       value="<%= settings.streamKey %>"
+                                       class="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-gray-300 text-sm font-medium mb-2" for="videoSize">
+                                Video Size
+                            </label>
+                            <div class="relative">
+                                <select id="videoSize" 
+                                        name="videoSize"
+                                        class="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 appearance-none">
+                                    <option value="1280x720" <%= settings.videoSize === '1280x720' ? 'selected' : '' %>>720p (1280x720)</option>
+                                    <option value="1920x1080" <%= settings.videoSize === '1920x1080' ? 'selected' : '' %>>1080p (1920x1080)</option>
+                                    <option value="854x480" <%= settings.videoSize === '854x480' ? 'selected' : '' %>>480p (854x480)</option>
+                                </select>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-gray-300 text-sm font-medium mb-2" for="thumbnail">
+                                Thumbnail Image
+                            </label>
+                            <div class="space-y-4">
+                                <div class="relative">
+                                    <label class="flex items-center justify-center w-full cursor-pointer bg-gray-800 border-2 border-gray-700 border-dashed rounded-lg px-4 py-6 hover:bg-gray-700 transition-all duration-200">
+                                        <div class="space-y-2 text-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                            </svg>
+                                            <div class="text-sm text-gray-400">
+                                                <span class="font-medium text-blue-400">Click to upload</span> or drag and drop
+                                            </div>
+                                            <p class="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
+                                        </div>
+                                        <input type="file" 
+                                               id="thumbnail" 
+                                               name="thumbnail"
+                                               accept="image/*"
+                                               class="hidden">
+                                    </label>
+                                </div>
+                                <% if (settings.thumbnailPath) { %>
+                                    <div class="relative group rounded-lg overflow-hidden bg-gray-800 p-2">
+                                        <img src="/thumbnail" alt="Current thumbnail" class="h-32 object-contain mx-auto rounded transition-opacity group-hover:opacity-75" id="thumbnailPreview">
+                                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-full text-sm font-medium transition-colors duration-200"
+                                                    onclick="removeThumbnail()">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                <% } %>
+                            </div>
+                        </div>
+                        <button id="updateBtn" 
+                                class="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 font-medium flex items-center justify-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>Update Settings</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="gradient-border p-6 flex flex-col h-full">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-blue-400 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Stream Logs
+                    </h2>
+                    <div class="flex space-x-2">
+                        <button id="clearLogsBtn" class="text-sm text-gray-400 hover:text-white transition-colors duration-200 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Clear
+                        </button>
+                        <button id="exportLogsBtn" class="text-sm text-gray-400 hover:text-white transition-colors duration-200 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Export
+                        </button>
+                    </div>
+                </div>
+                <div id="logs" class=" max-h-[calc(100vh-16rem)] flex-1 bg-gray-800 rounded-lg overflow-y-auto custom-scrollbar font-mono text-sm text-gray-300">
+                    <div id="logsContent" class="p-4 space-y-1 max-h-[calc(100vh-16rem)]">
+                        <!-- Logs will be inserted here -->
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2 mt-4">
+                    <div class="relative flex-1">
+                        <input type="text" 
+                               id="logSearch" 
+                               placeholder="Search logs..." 
+                               class="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                    <select id="logFilter" 
+                    class="bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                    <option value="all">All Logs</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warnings</option>
+                    <option value="error">Errors</option>
+                    <option value="success">Success</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    class LogManager {
+        constructor() {
+            this.logs = [];
+            this.maxLogs = 1000;
+            this.logsContent = document.getElementById('logsContent');
+            this.searchInput = document.getElementById('logSearch');
+            this.filterSelect = document.getElementById('logFilter');
+            this.setupEventListeners();
+        }
+
+        setupEventListeners() {
+            this.searchInput.addEventListener('input', () => this.renderLogs());
+            this.filterSelect.addEventListener('change', () => this.renderLogs());
+            
+            document.getElementById('clearLogsBtn').addEventListener('click', () => {
+                this.logs = [];
+                this.renderLogs();
+            });
+
+            document.getElementById('exportLogsBtn').addEventListener('click', () => this.exportLogs());
+        }
+
+        addLog(type, message) {
+            const timestamp = moment().format('HH:mm:ss.SSS');
+            const logEntry = { timestamp, type, message };
+            this.logs.unshift(logEntry);
+            
+            if (this.logs.length > this.maxLogs) {
+                this.logs.pop();
+            }
+            
+            this.renderLogs();
+        }
+
+        getLogClassAndIcon(type) {
+            const icons = {
+                info: '<svg class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+                warn: '<svg class="h-4 w-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>',
+                error: '<svg class="h-4 w-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+                success: '<svg class="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+            };
+            return { icon: icons[type] || icons.info, class: `log-${type}` };
+        }
+
+        renderLogs() {
+            const searchTerm = this.searchInput.value.toLowerCase();
+            const filterType = this.filterSelect.value;
+            
+            const filteredLogs = this.logs.filter(log => {
+                const matchesSearch = log.message.toLowerCase().includes(searchTerm);
+                const matchesFilter = filterType === 'all' || log.type === filterType;
+                return matchesSearch && matchesFilter;
+            });
+
+            this.logsContent.innerHTML = filteredLogs.map(log => {
+                const { icon, class: logClass } = this.getLogClassAndIcon(log.type);
+                return `
+                    <div class="log-entry ${logClass} bg-gray-800 rounded px-3 py-2 flex items-start space-x-3">
+                        <div class="flex-shrink-0 mt-1">${icon}</div>
+                        <div class="flex-1 space-y-1">
+                            <p class="font-medium text-gray-300">${log.message}</p>
+                            <p class="text-xs text-gray-500">${log.timestamp}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        exportLogs() {
+            const logsText = this.logs.map(log => 
+                `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}`
+            ).join('\n');
+            
+            const blob = new Blob([logsText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `stream-logs-${moment().format('YYYY-MM-DD-HH-mm-ss')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+    }
+
+    const logManager = new LogManager();
+    const ws = new WebSocket(`ws://${window.location.host}`);
+    let isStreaming = false;
+
+    // WebSocket event handlers
+    ws.onopen = () => {
+        console.log('Connected to server');
+        updateConnectionStatus('Connected', 'bg-green-500');
+        logManager.addLog('success', 'Connected to server');
+    };
+
+    ws.onclose = () => {
+        console.log('Disconnected from server');
+        updateConnectionStatus('Disconnected', 'bg-red-500');
+        logManager.addLog('error', 'Disconnected from server');
+    };
+
+    ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        
+        switch (message.type) {
+            case 'status':
+                handleStatusUpdate(message.data);
+                break;
+            case 'progress':
+                handleProgressUpdate(message.data);
+                break;
+            case 'log':
+                handleLogMessage(message.data);
+                break;
+            case 'error':
+                handleErrorMessage(message.data);
+                break;
+            case 'settings':
+                handleSettingsUpdate(message.data);
+                break;
+        }
+    };
+
+    // UI event handlers
+    document.getElementById('startBtn').addEventListener('click', () => {
+        ws.send(JSON.stringify({ type: 'start' }));
+        logManager.addLog('info', 'Starting stream...');
+    });
+
+    document.getElementById('stopBtn').addEventListener('click', () => {
+        ws.send(JSON.stringify({ type: 'stop' }));
+        logManager.addLog('info', 'Stopping stream...');
+    });
+
+    document.getElementById('updateBtn').addEventListener('click', () => {
+        const settings = {
+            audioUrl: document.getElementById('audioUrl').value,
+            streamKey: document.getElementById('streamKey').value,
+            videoSize: document.getElementById('videoSize').value
+        };
+        ws.send(JSON.stringify({ 
+            type: 'updateSettings',
+            settings
+        }));
+        logManager.addLog('info', 'Updating stream settings...');
+    });
+
+    document.getElementById('thumbnail').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const formData = new FormData();
+            formData.append('thumbnail', file);
+            
+            try {
+                const response = await fetch('/settings/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('thumbnailPreview').src = '/thumbnail?' + new Date().getTime();
+                    logManager.addLog('success', 'Thumbnail uploaded successfully');
+                } else {
+                    logManager.addLog('error', 'Failed to upload thumbnail');
+                }
+            } catch (error) {
+                logManager.addLog('error', `Error uploading thumbnail: ${error.message}`);
+            }
+        }
+    });
+
+    function removeThumbnail() {
+        fetch('/settings/thumbnail', {
+            method: 'DELETE'
+        }).then(response => response.json())
+          .then(result => {
+              if (result.success) {
+                  document.getElementById('thumbnailPreview').parentElement.remove();
+                  logManager.addLog('success', 'Thumbnail removed successfully');
+              }
+          })
+          .catch(error => {
+              logManager.addLog('error', `Error removing thumbnail: ${error.message}`);
+          });
+    }
+
+    // Helper functions
+    function updateConnectionStatus(status, bgColor) {
+        const statusElement = document.getElementById('connectionStatus');
+        statusElement.innerHTML = `
+            <div class="w-2 h-2 rounded-full ${status === 'Connected' ? 'bg-green-500' : 'bg-red-500'}"></div>
+            <span>${status}</span>
+        `;
+        statusElement.className = `flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium ${bgColor} text-white`;
+    }
+
+    function handleStatusUpdate(status) {
+        isStreaming = status.isStreaming;
+        updateStreamStatus(
+            isStreaming ? 'Streaming' : 'Stopped', 
+            isStreaming ? 'bg-green-500' : 'bg-gray-600'
+        );
+        document.getElementById('startBtn').disabled = isStreaming;
+        document.getElementById('stopBtn').disabled = !isStreaming;
+        document.getElementById('streamProgress').style.display = isStreaming ? 'block' : 'none';
+        
+        logManager.addLog(
+            isStreaming ? 'success' : 'info',
+            `Stream ${isStreaming ? 'started' : 'stopped'}`
+        );
+    }
+
+    function handleProgressUpdate(progress) {
+        document.getElementById('frames').textContent = progress.frames.toLocaleString();
+        document.getElementById('fps').textContent = progress.currentFps;
+        document.getElementById('bitrate').textContent = progress.currentKbps;
+        document.getElementById('time').textContent = progress.timemark;
+    }
+
+    function handleLogMessage(log) {
+        logManager.addLog(log.type, log.message);
+    }
+
+    function handleErrorMessage(error) {
+        logManager.addLog('error', error.error);
+        updateStreamStatus('Error', 'bg-red-500');
+    }
+
+    function handleSettingsUpdate(newSettings) {
+        document.getElementById('audioUrl').value = newSettings.audioUrl;
+        document.getElementById('streamKey').value = newSettings.streamKey;
+        document.getElementById('videoSize').value = newSettings.videoSize;
+        logManager.addLog('success', 'Settings updated successfully');
+    }
+
+    function updateStreamStatus(status, bgColor) {
+        const statusElement = document.getElementById('streamStatus');
+        statusElement.textContent = status;
+        statusElement.className = `px-4 py-2 rounded-full text-sm font-semibold ${bgColor} text-white`;
+    }
+</script>
+</body>
+</html>
