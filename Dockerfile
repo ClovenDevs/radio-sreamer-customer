@@ -4,38 +4,27 @@ FROM node:20-bullseye-slim
 # Install FFmpeg and other dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install bun
-RUN curl -fsSL https://bun.sh/install | bash
-
 # Copy package files
-COPY package.json ./
-COPY bun.lock ./
-COPY tsconfig.json ./
+COPY package*.json ./
 
 # Install dependencies
-RUN /root/.bun/bin/bun install
+RUN npm install
 
-# Copy the rest of the application
-COPY . .
+# Copy the built application
+COPY out ./out
+COPY assets ./assets
+COPY views ./views
 
-# Create necessary directories
-RUN mkdir -p uploads assets
-
-# Build TypeScript
-RUN /root/.bun/bin/bun build ./index.ts --outdir ./out
-
-# Environment variables
-ENV NODE_ENV=production
-ENV FFMPEG_PATH=/usr/bin/ffmpeg
+# Create uploads directory
+RUN mkdir -p uploads
 
 # Expose the port the app runs on
 EXPOSE 3000
 
 # Command to run the application
-CMD ["node", "out/index.js"]
+CMD ["npm", "start"]
