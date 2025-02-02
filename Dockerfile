@@ -15,7 +15,7 @@ RUN curl -fsSL https://bun.sh/install | bash
 
 # Copy package files
 COPY package.json ./
-COPY bun.lockb ./
+COPY bun.lock ./
 COPY tsconfig.json ./
 
 # Install dependencies
