@@ -1,10 +1,8 @@
 # Use official Node.js image as base
 FROM node:20-alpine
 
-# Install FFmpeg and other dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Install FFmpeg and other dependencies using Alpine's package manager
+RUN apk add --no-cache ffmpeg
 
 # Set working directory
 WORKDIR /app
