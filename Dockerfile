@@ -1,5 +1,5 @@
-# Use Node.js as base image
-FROM node:20-bullseye-slim
+# Use official Bun image as base
+FROM oven/bun:latest
 
 # Install FFmpeg and other dependencies
 RUN apt-get update && apt-get install -y \
@@ -9,14 +9,11 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Install bun
-RUN curl -fsSL https://bun.sh/install | bash
-
 # Copy package files
 COPY package.json bun.lock ./
 
 # Install dependencies
-RUN /root/.bun/bin/bun install
+RUN bun install
 
 # Copy the rest of the application
 COPY . .
@@ -25,4 +22,4 @@ COPY . .
 EXPOSE 3000
 
 # Command to run the application
-CMD ["/root/.bun/bin/bun", "run", "index.ts"]
+CMD ["bun", "run", "index.ts"]
