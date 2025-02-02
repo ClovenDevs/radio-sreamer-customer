@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies
+node_modules
+bun.lockb
+
+# Environment variables
+.env
+.env.*
+
+# Build outputs
+dist
+build
+
+# Logs
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode
+.idea
+
+# Temporary files
+tmp
+temp
+uploads/*
+!uploads/.gitkeep
