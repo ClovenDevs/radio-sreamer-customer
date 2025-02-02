@@ -36,6 +36,8 @@ let settings = {
   thumbnailPath: path.join(__dirname, 'assets', 'thumbnail.png')
 };
 
+console.log(settings);
+
 // WebSocket connection handling
 wss.on('connection', (ws: WebSocket) => {
   console.log('New WebSocket connection');

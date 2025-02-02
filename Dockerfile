@@ -15,13 +15,17 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
-# Copy the built application
+# Copy the built application and assets
 COPY out ./out
 COPY assets ./assets
 COPY views ./views
 
-# Create uploads directory
-RUN mkdir -p uploads
+# Create uploads directory and ensure proper permissions
+RUN mkdir -p uploads && \
+    chown -R node:node /app
+
+# Switch to non-root user
+USER node
 
 # Expose the port the app runs on
 EXPOSE 3000
