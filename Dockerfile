@@ -13,7 +13,7 @@ WORKDIR /app
 RUN curl -fsSL https://bun.sh/install | bash
 
 # Copy package files
-COPY package.json bun.lockb ./
+COPY package.json bun.lock ./
 
 # Install dependencies
 RUN /root/.bun/bin/bun install
