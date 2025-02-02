@@ -2,6 +2,11 @@
   "name": "radio-yt-streamer",
   "module": "index.ts",
   "type": "module",
+  "scripts": {
+    "start": "node out/index.js",
+    "build": "bun build --entrypoints ./index.ts --outdir ./out",
+    "dev": "bun run index.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
