@@ -4,12 +4,14 @@ import ffmpegPath from 'ffmpeg-static';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import path from 'path';
+import os from 'os';
 
 type StreamConfig = {
   streamKey: string;
   audioUrl: string;
   videoSize?: string;
   thumbnailPath?: string;
+  bufferSeconds?: number;
 };
 
 type StreamProgress = {
@@ -21,30 +23,80 @@ type StreamProgress = {
 
 export class YouTubeStreamer extends EventEmitter {
   private command: ffmpeg.FfmpegCommand | null;
+  private bufferCommand: ffmpeg.FfmpegCommand | null;
   private _isStreaming: boolean;
+  private _isBuffering: boolean;
+  private bufferPath: string;
+  private readonly bufferSeconds: number;
 
   constructor(private config: StreamConfig) {
     super();
     this._isStreaming = false;
-
+    this._isBuffering = false;
+    this.bufferCommand = null;
+    this.bufferSeconds = config.bufferSeconds || 30;
+    this.bufferPath = path.join(os.tmpdir(), `yt-buffer-${Date.now()}.aac`);
+    
     // In Docker, use system ffmpeg instead of ffmpeg-static
     const ffmpegBinary = process.env.DOCKER_CONTAINER ? 'ffmpeg' : ffmpegPath;
     console.log('Using FFmpeg binary:', ffmpegBinary);
 
     // Set default video size if not provided
     const videoSize = this.config.videoSize || '1280x720';
+    this.command = null;
 
-    this.command = ffmpeg()
-   
+    // Start buffering immediately
+    this.startBuffering();
+  }
 
+  private async startBuffering() {
+    if (this._isBuffering) return;
+    
+    console.log('Starting buffer...');
+    this._isBuffering = true;
+    
+    this.bufferCommand = ffmpeg()
+      .input(this.config.audioUrl)
+      .inputOptions(['-f', 'aac'])
+      .outputOptions([
+        '-t', this.bufferSeconds.toString(),  // Duration to capture
+        '-c:a', 'copy'  // Copy audio without re-encoding
+      ])
+      .output(this.bufferPath)
+      .on('start', () => {
+        console.log('Buffer recording started');
+        this.emit('buffer_start');
+      })
+      .on('progress', (progress) => {
+        const percent = (parseFloat(progress.timemark) / this.bufferSeconds) * 100;
+        this.emit('buffer_progress', { percent, timemark: progress.timemark });
+      })
+      .on('end', () => {
+        console.log('Buffer recording complete');
+        this._isBuffering = false;
+        this.emit('buffer_ready');
+        this.setupStreamCommand();
+      })
+      .on('error', (err) => {
+        console.error('Buffer error:', err.message);
+        this._isBuffering = false;
+        this.emit('error', { error: err.message });
+      });
+
+    this.bufferCommand.run();
+  }
+
+  private setupStreamCommand() {
     // Convert Windows-style paths to POSIX paths in Docker environment
     let thumbnailPath = this.config.thumbnailPath;
     if (thumbnailPath && process.env.DOCKER_CONTAINER) {
       thumbnailPath = thumbnailPath.replace(/\\/g, '/');
       if (thumbnailPath.includes(':')) {
-        thumbnailPath = thumbnailPath.split(':')[1]; // Remove drive letter
+        thumbnailPath = thumbnailPath.split(':')[1];
       }
     }
+
+    this.command = ffmpeg();
 
     // If thumbnail is provided, use it; otherwise use black background
     if (thumbnailPath && fs.existsSync(thumbnailPath)) {
@@ -52,46 +104,50 @@ export class YouTubeStreamer extends EventEmitter {
       this.command
         .input(thumbnailPath)
         .inputOptions([
-          '-loop 1',  // Loop the image
-          '-framerate 1'  // 1 frame per second
+          '-loop 1',
+          '-framerate 1'
         ]);
     } else {
       console.log('Using black background');
-      // Generate black video using color filter
       this.command
         .input('nullsrc')
         .inputOptions([
           '-f', 'rawvideo',
-          '-video_size', videoSize,
+          '-video_size', this.config.videoSize || '1280x720',
           '-pix_fmt', 'rgb24',
-          '-r', '1'  // 1 frame per second
+          '-r', '1'
         ])
         .videoFilters([
-          'geq=r=0:g=0:b=0'  // Generate black color
+          'geq=r=0:g=0:b=0'
         ]);
     }
 
-    // Add audio input
+    // Create a concat file for seamless playback
+    const concatFile = path.join(os.tmpdir(), `concat-${Date.now()}.txt`);
+    fs.writeFileSync(concatFile, `file '${this.bufferPath}'\nfile '${this.config.audioUrl}'`);
+
+    // Add concatenated audio input
     this.command
-      .input(this.config.audioUrl)
+      .input(concatFile)
       .inputOptions([
-        '-f', 'aac'
+        '-f', 'concat',
+        '-safe', '0'
       ])
       // Video settings
       .videoCodec('libx264')
       .outputOptions([
         '-preset ultrafast',
         '-tune stillimage',
-        '-r 1',          // 1 frame per second
-        '-g 2',          // GOP size of 2
-        '-c:a copy',     // Copy audio without re-encoding
-        '-shortest',     // End when shortest input ends
-        '-pix_fmt yuv420p',  // Required for compatibility
-        '-f flv'         // FLV output format
+        '-r 1',
+        '-g 2',
+        '-c:a copy',
+        '-shortest',
+        '-pix_fmt yuv420p',
+        '-f flv'
       ])
       .output(`rtmp://a.rtmp.youtube.com/live2/${this.config.streamKey}`)
       .on('start', (commandLine) => {
-        console.log('FFmpeg process started with command:', commandLine);
+        console.log('FFmpeg stream started with command:', commandLine);
         this._isStreaming = true;
         this.emit('status', { isStreaming: true, command: commandLine });
       })
@@ -106,13 +162,10 @@ export class YouTubeStreamer extends EventEmitter {
           currentKbps: progress.currentKbps,
           timemark: progress.timemark
         };
-        console.log('FFmpeg Progress:', streamProgress);
         this.emit('progress', streamProgress);
       })
       .on('error', (err, stdout, stderr) => {
         console.error('Stream error:', err.message);
-        console.error('FFmpeg stdout:', stdout);
-        console.error('FFmpeg stderr:', stderr);
         this.emit('error', { error: err.message, stdout, stderr });
         this.cleanup();
       })
@@ -122,24 +175,18 @@ export class YouTubeStreamer extends EventEmitter {
         this.emit('end');
       });
 
-    // Start streaming immediately
+    // Start streaming automatically after setup
     this.startStream();
   }
 
   private startStream() {
-    if (this._isStreaming) {
+    if (this._isStreaming || !this.command) {
       return;
     }
 
-    console.log('Starting stream...');
-    console.log('Audio URL:', this.config.audioUrl);
-    if (this.config.thumbnailPath) {
-      console.log('Using thumbnail:', this.config.thumbnailPath);
-    } else {
-      console.log('Using black background');
-    }
+    console.log('Starting stream with buffered content...');
     this._isStreaming = true;
-    this.command?.run();
+    this.command.run();
   }
 
   stopStream(): void {
@@ -149,10 +196,27 @@ export class YouTubeStreamer extends EventEmitter {
       this.command = null;
       this.emit('status', { isStreaming: false });
     }
+    if (this._isBuffering && this.bufferCommand) {
+      this._isBuffering = false;
+      this.bufferCommand.kill('SIGKILL');
+      this.bufferCommand = null;
+    }
+    this.cleanup();
   }
 
   private cleanup() {
     this._isStreaming = false;
+    this._isBuffering = false;
+    
+    // Clean up temporary files
+    try {
+      if (fs.existsSync(this.bufferPath)) {
+        fs.unlinkSync(this.bufferPath);
+      }
+    } catch (err) {
+      console.error('Error cleaning up buffer file:', err);
+    }
+    
     this.emit('status', { isStreaming: false });
   }
 
@@ -160,9 +224,14 @@ export class YouTubeStreamer extends EventEmitter {
     return this._isStreaming;
   }
 
+  get isBuffering(): boolean {
+    return this._isBuffering;
+  }
+
   getStatus() {
     return {
       isStreaming: this._isStreaming,
+      isBuffering: this._isBuffering,
       config: this.config
     };
   }
