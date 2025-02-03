@@ -35700,10 +35700,8 @@ class YouTubeStreamer extends EventEmitter {
     super();
     this.config = config;
     this._isStreaming = false;
-    let ffmpegBinary = import_ffmpeg_static.default;
-    if (!ffmpegBinary) {
-      ffmpegBinary = "ffmpeg";
-    }
+    const ffmpegBinary = process.env.DOCKER_CONTAINER ? "ffmpeg" : import_ffmpeg_static.default;
+    console.log("Using FFmpeg binary:", ffmpegBinary);
     const videoSize = this.config.videoSize || "1280x720";
     this.command = import_fluent_ffmpeg.default().setFfmpegPath(ffmpegBinary);
     let thumbnailPath = this.config.thumbnailPath;
@@ -35714,11 +35712,13 @@ class YouTubeStreamer extends EventEmitter {
       }
     }
     if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+      console.log("Using thumbnail:", thumbnailPath);
       this.command.input(thumbnailPath).inputOptions([
         "-loop 1",
         "-framerate 1"
       ]);
     } else {
+      console.log("Using black background");
       this.command.input("color=size=" + videoSize + ":rate=1:color=black").inputOptions([
         "-f",
         "lavfi"
@@ -35809,12 +35809,20 @@ var server = createServer(app);
 var wss = new import_websocket_server.default({ server });
 var port = process.env.PORT || 3000;
 var normalizePath = (pathToNormalize) => {
-  const normalized = path.normalize(pathToNormalize).replace(/\\/g, "/");
-  return process.env.DOCKER_CONTAINER ? normalized.split(":").pop() : normalized;
+  let normalized = path.normalize(pathToNormalize).replace(/\\/g, "/");
+  if (process.env.DOCKER_CONTAINER) {
+    normalized = normalized.replace(/^[A-Z]:/i, "");
+    normalized = normalized.replace(/^\/Users\/[^/]+/, "");
+    if (!normalized.startsWith("/app")) {
+      normalized = path.join("/app", normalized);
+    }
+  }
+  return normalized;
 };
 var storage = import_multer.default.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "assets");
+    const uploadPath = normalizePath("assets");
+    cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
     cb(null, "thumbnail" + path.extname(file.originalname));
@@ -35832,6 +35840,7 @@ var settings = {
   videoSize: "1280x720",
   thumbnailPath: normalizePath(path.join(__dirname, "assets", "thumbnail.png"))
 };
+console.log("Thumbnail path:", settings.thumbnailPath);
 wss.on("connection", (ws) => {
   console.log("New WebSocket connection");
   ws.send(JSON.stringify({
