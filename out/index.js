@@ -35821,6 +35821,7 @@ var storage = import_multer.default.diskStorage({
   }
 });
 var upload = import_multer.default({ storage });
+console.log("process.env.DOCKER_CONTAINER", process.env.DOCKER_CONTAINER);
 app.set("view engine", "ejs");
 app.use(import_express.default.urlencoded({ extended: true }));
 app.use(import_express.default.json());
