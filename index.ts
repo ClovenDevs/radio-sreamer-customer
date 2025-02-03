@@ -27,7 +27,7 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
-
+console.log('process.env.DOCKER_CONTAINER', process.env.DOCKER_CONTAINER);
 // Setup express middleware
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
