@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Set environment variable to indicate Docker environment
+ENV DOCKER_CONTAINER=true
+
 # Set working directory
 WORKDIR /app
 

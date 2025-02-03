@@ -26,18 +26,31 @@ export class YouTubeStreamer extends EventEmitter {
     super();
     this._isStreaming = false;
 
-    if (!ffmpegPath) throw new Error('FFmpeg not found');
+    // Try to use ffmpeg-static first, fall back to system ffmpeg if not found
+    let ffmpegBinary = ffmpegPath;
+    if (!ffmpegBinary) {
+      ffmpegBinary = 'ffmpeg'; // Fall back to system ffmpeg
+    }
 
     // Set default video size if not provided
     const videoSize = this.config.videoSize || '1280x720';
 
     this.command = ffmpeg()
-      .setFfmpegPath(ffmpegPath);
+      .setFfmpegPath(ffmpegBinary);
+
+    // Convert Windows-style paths to POSIX paths in Docker environment
+    let thumbnailPath = this.config.thumbnailPath;
+    if (thumbnailPath && process.env.DOCKER_CONTAINER) {
+      thumbnailPath = thumbnailPath.replace(/\\/g, '/');
+      if (thumbnailPath.includes(':')) {
+        thumbnailPath = thumbnailPath.split(':')[1]; // Remove drive letter
+      }
+    }
 
     // If thumbnail is provided, use it; otherwise use black background
-    if (this.config.thumbnailPath && fs.existsSync(this.config.thumbnailPath)) {
+    if (thumbnailPath && fs.existsSync(thumbnailPath)) {
       this.command
-        .input(this.config.thumbnailPath)
+        .input(thumbnailPath)
         .inputOptions([
           '-loop 1',  // Loop the image
           '-framerate 1'  // 1 frame per second
