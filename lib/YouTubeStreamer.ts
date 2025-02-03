@@ -3,6 +3,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import fs from 'fs';
 import { EventEmitter } from 'events';
+import path from 'path';
 
 type StreamConfig = {
   streamKey: string;
@@ -26,17 +27,15 @@ export class YouTubeStreamer extends EventEmitter {
     super();
     this._isStreaming = false;
 
-    // Try to use ffmpeg-static first, fall back to system ffmpeg if not found
-    let ffmpegBinary = ffmpegPath;
-    if (!ffmpegBinary) {
-      ffmpegBinary = 'ffmpeg'; // Fall back to system ffmpeg
-    }
+    // In Docker, use system ffmpeg instead of ffmpeg-static
+    const ffmpegBinary = process.env.DOCKER_CONTAINER ? 'ffmpeg' : ffmpegPath;
+    console.log('Using FFmpeg binary:', ffmpegBinary);
 
     // Set default video size if not provided
     const videoSize = this.config.videoSize || '1280x720';
 
     this.command = ffmpeg()
-      .setFfmpegPath(ffmpegBinary);
+      .setFfmpegPath(ffmpegBinary!);
 
     // Convert Windows-style paths to POSIX paths in Docker environment
     let thumbnailPath = this.config.thumbnailPath;
@@ -49,6 +48,7 @@ export class YouTubeStreamer extends EventEmitter {
 
     // If thumbnail is provided, use it; otherwise use black background
     if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+      console.log('Using thumbnail:', thumbnailPath);
       this.command
         .input(thumbnailPath)
         .inputOptions([
@@ -56,6 +56,7 @@ export class YouTubeStreamer extends EventEmitter {
           '-framerate 1'  // 1 frame per second
         ]);
     } else {
+      console.log('Using black background');
       this.command
         .input('color=size=' + videoSize + ':rate=1:color=black')
         .inputOptions([

@@ -13,20 +13,35 @@ const port = process.env.PORT || 3000;
 
 // Helper function to normalize paths for both Windows and Linux
 const normalizePath = (pathToNormalize: string): string => {
-  const normalized = path.normalize(pathToNormalize).replace(/\\/g, '/');
-  return process.env.DOCKER_CONTAINER ? normalized.split(':').pop()! : normalized;
+  // Convert to forward slashes and normalize
+  let normalized = path.normalize(pathToNormalize).replace(/\\/g, '/');
+  
+  if (process.env.DOCKER_CONTAINER) {
+    // Remove Windows drive letter if present
+    normalized = normalized.replace(/^[A-Z]:/i, '');
+    // Remove any leading /Users path in Docker
+    normalized = normalized.replace(/^\/Users\/[^/]+/, '');
+    // Ensure path starts with /app since that's our Docker WORKDIR
+    if (!normalized.startsWith('/app')) {
+      normalized = path.join('/app', normalized);
+    }
+  }
+  
+  return normalized;
 };
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'assets');
+    const uploadPath = normalizePath('assets');
+    cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
     cb(null, 'thumbnail' + path.extname(file.originalname));
   }
 });
 const upload = multer({ storage });
+
 console.log('process.env.DOCKER_CONTAINER', process.env.DOCKER_CONTAINER);
 // Setup express middleware
 app.set('view engine', 'ejs');
@@ -41,6 +56,8 @@ let settings = {
   videoSize: '1280x720',
   thumbnailPath: normalizePath(path.join(__dirname, 'assets', 'thumbnail.png'))
 };
+
+console.log('Thumbnail path:', settings.thumbnailPath);
 
 // WebSocket connection handling
 wss.on('connection', (ws: WebSocket) => {
