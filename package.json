@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "start": "node out/index.js",
-    "build": "bun build --entrypoints ./index.ts --outdir ./out --target node",
+    "build": "tsc",
     "dev": "bun run index.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -16,6 +17,7 @@
   "dependencies": {
     "@types/ejs": "^3.1.5",
     "@types/express": "^5.0.0",
+    "@types/fluent-ffmpeg": "^2.1.27",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.0",
     "@types/ws": "^8.5.14",

@@ -35,7 +35,7 @@ export class YouTubeStreamer extends EventEmitter {
     const videoSize = this.config.videoSize || '1280x720';
 
     this.command = ffmpeg()
-      .setFfmpegPath(ffmpegBinary!);
+   
 
     // Convert Windows-style paths to POSIX paths in Docker environment
     let thumbnailPath = this.config.thumbnailPath;
@@ -57,10 +57,17 @@ export class YouTubeStreamer extends EventEmitter {
         ]);
     } else {
       console.log('Using black background');
+      // Generate black video using color filter
       this.command
-        .input('color=size=' + videoSize + ':rate=1:color=black')
+        .input('nullsrc')
         .inputOptions([
-          '-f', 'lavfi'
+          '-f', 'rawvideo',
+          '-video_size', videoSize,
+          '-pix_fmt', 'rgb24',
+          '-r', '1'  // 1 frame per second
+        ])
+        .videoFilters([
+          'geq=r=0:g=0:b=0'  // Generate black color
         ]);
     }
 

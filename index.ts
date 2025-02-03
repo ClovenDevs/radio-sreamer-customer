@@ -4,7 +4,14 @@ import path from 'path';
 import multer from 'multer';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
-import { YouTubeStreamer } from './lib/YouTubeStreamer';
+import { YouTubeStreamer } from './lib/YouTubeStreamer.js';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// ES Module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
@@ -54,7 +61,7 @@ let settings = {
   streamKey: process.env.YT_STREAM_KEY || '',
   audioUrl: 'https://prod-3-84-19-111.amperwave.net/audacy-wqalfmaac-imc',
   videoSize: '1280x720',
-  thumbnailPath: normalizePath(path.join(__dirname, 'assets', 'thumbnail.png'))
+  thumbnailPath: normalizePath(path.join(__dirname, '../assets', 'thumbnail.png'))
 };
 
 console.log('Thumbnail path:', settings.thumbnailPath);
@@ -170,7 +177,7 @@ app.get('/', (req, res) => {
 // File upload endpoint
 app.post('/settings/upload', upload.single('thumbnail'), (req, res) => {
   if (req.file) {
-    settings.thumbnailPath = normalizePath(path.join(__dirname, 'assets', req.file.filename));
+    settings.thumbnailPath = normalizePath(path.join(__dirname, '../assets', req.file.filename));
     broadcastToAll({
       type: 'settings',
       data: settings
@@ -183,7 +190,7 @@ app.post('/settings/upload', upload.single('thumbnail'), (req, res) => {
 
 // Serve thumbnail image
 app.get('/thumbnail', (req, res) => {
-  if (settings.thumbnailPath && require('fs').existsSync(settings.thumbnailPath)) {
+  if (settings.thumbnailPath && fs.existsSync(settings.thumbnailPath)) {
     res.sendFile(settings.thumbnailPath);
   } else {
     res.status(404).send('Thumbnail not found');

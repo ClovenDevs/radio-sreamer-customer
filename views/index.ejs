@@ -408,7 +408,7 @@
     }
 
     const logManager = new LogManager();
-    const ws = new WebSocket(`wss://${window.location.host}`);
+    const ws = new WebSocket(`ws://${window.location.host}`);
     let isStreaming = false;
 
     // WebSocket event handlers
