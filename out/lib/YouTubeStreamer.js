@@ -12,19 +12,15 @@ export class YouTubeStreamer extends EventEmitter {
         this._isStreaming = false;
         this._isBuffering = false;
         this.bufferCommand = null;
-        this.command = null;
         this.bufferSeconds = config.bufferSeconds || 30;
-        this.currentBufferIndex = 0;
-        this.bufferFiles = [];
-        this.bufferUpdateInterval = null;
-        // Create buffer directory
-        this.bufferDir = path.join(os.tmpdir(), `yt-buffer-${Date.now()}`);
-        fs.mkdirSync(this.bufferDir, { recursive: true });
-        // Create concat file path
-        this.concatFilePath = path.join(this.bufferDir, 'concat.txt');
+        this.bufferPath = path.join(os.tmpdir(), `yt-buffer-${Date.now()}.aac`);
+        this.restartTimeout = null;
         // In Docker, use system ffmpeg instead of ffmpeg-static
         const ffmpegBinary = process.env.DOCKER_CONTAINER ? 'ffmpeg' : ffmpegPath;
         console.log('Using FFmpeg binary:', ffmpegBinary);
+        // Set default video size if not provided
+        const videoSize = this.config.videoSize || '1280x720';
+        this.command = null;
         // Start buffering immediately
         this.startBuffering();
     }
@@ -33,56 +29,47 @@ export class YouTubeStreamer extends EventEmitter {
             return;
         console.log('Starting continuous buffer...');
         this._isBuffering = true;
-        // Start the continuous buffer update process
-        this.updateBuffer();
-        // Set up interval to create new buffer chunks
-        this.bufferUpdateInterval = setInterval(() => {
-            this.updateBuffer();
-        }, (this.bufferSeconds * 1000) / 2); // Update at half the buffer duration
-    }
-    updateBuffer() {
-        const bufferFile = path.join(this.bufferDir, `buffer-${this.currentBufferIndex}.aac`);
-        this.currentBufferIndex++;
-        // Create new buffer command
-        const bufferCmd = ffmpeg()
+        this.bufferCommand = ffmpeg()
             .input(this.config.audioUrl)
-            .inputOptions(['-f', 'aac'])
-            .outputOptions([
-            '-t', (this.bufferSeconds / 2).toString(), // Record half buffer duration
-            '-c:a', 'copy'
+            .inputOptions([
+            '-f', 'aac',
+            '-re' // Read input at native framerate
         ])
-            .output(bufferFile);
-        // Handle buffer chunk completion
-        bufferCmd
-            .on('end', () => {
-            this.bufferFiles.push(bufferFile);
-            // Keep only the last minute of buffer files
-            while (this.bufferFiles.length > 4) { // Keep last 4 chunks (2x buffer duration)
-                const oldFile = this.bufferFiles.shift();
-                if (oldFile && fs.existsSync(oldFile)) {
-                    fs.unlinkSync(oldFile);
+            .outputOptions([
+            '-c:a', 'copy', // Copy audio without re-encoding
+            '-f', 'segment', // Use segmenter
+            '-segment_time', '5', // Create new segment every 5 seconds
+            '-segment_format', 'aac',
+            '-segment_wrap', '12', // Keep last 60 seconds (12 * 5s segments)
+            '-reset_timestamps', '1' // Reset timestamps for each segment
+        ])
+            .output(path.join(os.tmpdir(), `buffer-%d.aac`))
+            .on('start', () => {
+            console.log('Buffer recording started');
+            this.emit('buffer_start');
+            // Start streaming after initial buffer period
+            setTimeout(() => {
+                if (!this._isStreaming) {
+                    this.setupStreamCommand();
                 }
-            }
-            // Update concat file
-            this.updateConcatFile();
-            // Start streaming if not already started
-            if (!this._isStreaming && this.bufferFiles.length >= 2) {
-                this.setupStreamCommand();
-            }
+            }, this.bufferSeconds * 1000);
+        })
+            .on('stderr', (stderrLine) => {
+            console.log('Buffer:', stderrLine);
         })
             .on('error', (err) => {
-            console.error('Buffer chunk error:', err.message);
+            console.error('Buffer error:', err.message);
             this.emit('error', { error: err.message });
+            // Attempt to restart buffer if error occurs
+            this._isBuffering = false;
+            if (!this.restartTimeout) {
+                this.restartTimeout = setTimeout(() => {
+                    this.restartTimeout = null;
+                    this.startBuffering();
+                }, 5000);
+            }
         });
-        bufferCmd.run();
-    }
-    updateConcatFile() {
-        // Create concat file content
-        const concatContent = this.bufferFiles
-            .map(file => `file '${file}'`)
-            .join('\n');
-        // Add the live input at the end
-        fs.writeFileSync(this.concatFilePath, `${concatContent}\nfile '${this.config.audioUrl}'`);
+        this.bufferCommand.run();
     }
     setupStreamCommand() {
         // Convert Windows-style paths to POSIX paths in Docker environment
@@ -118,13 +105,14 @@ export class YouTubeStreamer extends EventEmitter {
                 'geq=r=0:g=0:b=0'
             ]);
         }
-        // Add concatenated audio input with continuous update
+        // Use the segmented buffer files
+        const pattern = path.join(os.tmpdir(), 'buffer-%d.aac');
         this.command
-            .input(this.concatFilePath)
+            .input(pattern)
             .inputOptions([
-            '-f', 'concat',
-            '-safe', '0',
-            '-re' // Read input at native framerate
+            '-f', 'segment',
+            '-segment_time', '5',
+            '-segment_format', 'aac'
         ])
             // Video settings
             .videoCodec('libx264')
@@ -160,12 +148,24 @@ export class YouTubeStreamer extends EventEmitter {
             .on('error', (err, stdout, stderr) => {
             console.error('Stream error:', err.message);
             this.emit('error', { error: err.message, stdout, stderr });
-            this.cleanup();
+            // Attempt to restart stream if error occurs
+            this._isStreaming = false;
+            if (!this.restartTimeout) {
+                this.restartTimeout = setTimeout(() => {
+                    this.restartTimeout = null;
+                    this.setupStreamCommand();
+                }, 5000);
+            }
         })
             .on('end', () => {
             console.log('FFmpeg process ended');
-            this.cleanup();
-            this.emit('end');
+            // Attempt to restart if not explicitly stopped
+            if (this._isStreaming && !this.restartTimeout) {
+                this.restartTimeout = setTimeout(() => {
+                    this.restartTimeout = null;
+                    this.setupStreamCommand();
+                }, 5000);
+            }
         });
         // Start streaming
         this.startStream();
@@ -179,6 +179,10 @@ export class YouTubeStreamer extends EventEmitter {
         this.command.run();
     }
     stopStream() {
+        if (this.restartTimeout) {
+            clearTimeout(this.restartTimeout);
+            this.restartTimeout = null;
+        }
         if (this._isStreaming && this.command) {
             this._isStreaming = false;
             this.command.kill('SIGKILL');
@@ -190,27 +194,19 @@ export class YouTubeStreamer extends EventEmitter {
             this.bufferCommand.kill('SIGKILL');
             this.bufferCommand = null;
         }
-        if (this.bufferUpdateInterval) {
-            clearInterval(this.bufferUpdateInterval);
-            this.bufferUpdateInterval = null;
-        }
         this.cleanup();
     }
     cleanup() {
         this._isStreaming = false;
         this._isBuffering = false;
-        // Clean up buffer files and directory
+        // Clean up temporary files
         try {
-            this.bufferFiles.forEach(file => {
-                if (fs.existsSync(file)) {
-                    fs.unlinkSync(file);
+            // Clean up all segment files
+            for (let i = 0; i < 12; i++) {
+                const segmentPath = path.join(os.tmpdir(), `buffer-${i}.aac`);
+                if (fs.existsSync(segmentPath)) {
+                    fs.unlinkSync(segmentPath);
                 }
-            });
-            if (fs.existsSync(this.concatFilePath)) {
-                fs.unlinkSync(this.concatFilePath);
-            }
-            if (fs.existsSync(this.bufferDir)) {
-                fs.rmdirSync(this.bufferDir);
             }
         }
         catch (err) {
@@ -228,7 +224,6 @@ export class YouTubeStreamer extends EventEmitter {
         return {
             isStreaming: this._isStreaming,
             isBuffering: this._isBuffering,
-            bufferFiles: this.bufferFiles.length,
             config: this.config
         };
     }
