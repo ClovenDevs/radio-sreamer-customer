@@ -11,6 +11,12 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const port = process.env.PORT || 3000;
 
+// Helper function to normalize paths for both Windows and Linux
+const normalizePath = (pathToNormalize: string): string => {
+  const normalized = path.normalize(pathToNormalize).replace(/\\/g, '/');
+  return process.env.DOCKER_CONTAINER ? normalized.split(':').pop()! : normalized;
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -33,7 +39,7 @@ let settings = {
   streamKey: process.env.YT_STREAM_KEY || '',
   audioUrl: 'https://prod-3-84-19-111.amperwave.net/audacy-wqalfmaac-imc',
   videoSize: '1280x720',
-  thumbnailPath: path.join(__dirname, 'assets', 'thumbnail.png')
+  thumbnailPath: normalizePath(path.join(__dirname, 'assets', 'thumbnail.png'))
 };
 
 // WebSocket connection handling
@@ -147,7 +153,7 @@ app.get('/', (req, res) => {
 // File upload endpoint
 app.post('/settings/upload', upload.single('thumbnail'), (req, res) => {
   if (req.file) {
-    settings.thumbnailPath = path.join(__dirname, 'assets', req.file.filename);
+    settings.thumbnailPath = normalizePath(path.join(__dirname, 'assets', req.file.filename));
     broadcastToAll({
       type: 'settings',
       data: settings

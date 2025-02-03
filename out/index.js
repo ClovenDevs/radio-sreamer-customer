@@ -35700,12 +35700,21 @@ class YouTubeStreamer extends EventEmitter {
     super();
     this.config = config;
     this._isStreaming = false;
-    if (!import_ffmpeg_static.default)
-      throw new Error("FFmpeg not found");
+    let ffmpegBinary = import_ffmpeg_static.default;
+    if (!ffmpegBinary) {
+      ffmpegBinary = "ffmpeg";
+    }
     const videoSize = this.config.videoSize || "1280x720";
-    this.command = import_fluent_ffmpeg.default().setFfmpegPath(import_ffmpeg_static.default);
-    if (this.config.thumbnailPath && fs.existsSync(this.config.thumbnailPath)) {
-      this.command.input(this.config.thumbnailPath).inputOptions([
+    this.command = import_fluent_ffmpeg.default().setFfmpegPath(ffmpegBinary);
+    let thumbnailPath = this.config.thumbnailPath;
+    if (thumbnailPath && process.env.DOCKER_CONTAINER) {
+      thumbnailPath = thumbnailPath.replace(/\\/g, "/");
+      if (thumbnailPath.includes(":")) {
+        thumbnailPath = thumbnailPath.split(":")[1];
+      }
+    }
+    if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+      this.command.input(thumbnailPath).inputOptions([
         "-loop 1",
         "-framerate 1"
       ]);
@@ -35799,6 +35808,10 @@ var app = import_express.default();
 var server = createServer(app);
 var wss = new import_websocket_server.default({ server });
 var port = process.env.PORT || 3000;
+var normalizePath = (pathToNormalize) => {
+  const normalized = path.normalize(pathToNormalize).replace(/\\/g, "/");
+  return process.env.DOCKER_CONTAINER ? normalized.split(":").pop() : normalized;
+};
 var storage = import_multer.default.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "assets");
@@ -35816,7 +35829,7 @@ var settings = {
   streamKey: process.env.YT_STREAM_KEY || "",
   audioUrl: "https://prod-3-84-19-111.amperwave.net/audacy-wqalfmaac-imc",
   videoSize: "1280x720",
-  thumbnailPath: path.join(__dirname, "assets", "thumbnail.png")
+  thumbnailPath: normalizePath(path.join(__dirname, "assets", "thumbnail.png"))
 };
 wss.on("connection", (ws) => {
   console.log("New WebSocket connection");
@@ -35906,7 +35919,7 @@ app.get("/", (req, res) => {
 });
 app.post("/settings/upload", upload.single("thumbnail"), (req, res) => {
   if (req.file) {
-    settings.thumbnailPath = path.join(__dirname, "assets", req.file.filename);
+    settings.thumbnailPath = normalizePath(path.join(__dirname, "assets", req.file.filename));
     broadcastToAll({
       type: "settings",
       data: settings
